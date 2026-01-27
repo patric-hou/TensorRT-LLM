@@ -260,7 +260,250 @@ FROM nvcr.io/nvidia/tritonserver:25.12-py3
 
 ---
 
-## 十三、结论
+## 十三、测试脚本和配置文件位置详解
+
+本节详细列出各个AI软件组件在CI测试中的具体使用位置。
+
+### 1. PyTorch
+
+#### 安装位置
+- **Docker安装脚本**: `docker/common/install_pytorch.sh`
+  - 版本: 2.9.1
+  - 支持架构: `TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0;10.0;12.0"`
+  - 可选从源码编译或使用预装版本
+
+#### 测试文件
+**Unit测试** (462个文件导入torch):
+- `tests/unittest/_torch/` - PyTorch专用单元测试目录
+  - `tests/unittest/_torch/attention/` - 注意力机制测试
+  - `tests/unittest/_torch/auto_deploy/` - 自动部署测试
+  - `tests/unittest/_torch/executor/test_pytorch_model_engine.py` - PyTorch模型引擎测试
+  - `tests/unittest/_torch/modules/tests_lora_modules/` - LoRA模块测试
+  - `tests/unittest/_torch/sampler/` - 采样器测试
+  - `tests/unittest/_torch/speculative/` - 推测性解码测试
+  - `tests/unittest/llmapi/test_llm_pytorch.py` - PyTorch后端LLM API测试
+  - `tests/unittest/llmapi/test_llm_multi_gpu_pytorch.py` - 多GPU PyTorch测试
+
+**集成测试**:
+- `tests/integration/defs/accuracy/test_llm_api_pytorch.py` - PyTorch后端准确性测试
+- `tests/integration/defs/accuracy/test_llm_api_pytorch_multimodal.py` - 多模态PyTorch测试
+- `tests/integration/defs/accuracy/test_llm_api_pytorch_ray.py` - PyTorch+Ray分布式测试
+- `tests/integration/defs/perf/pytorch_model_config.py` - PyTorch性能配置
+
+#### 测试配置
+- **Test-DB配置文件**: `tests/integration/test_lists/test-db/*.yml`
+  - `l0_h100.yml` - H100 GPU的PyTorch后端测试
+  - `l0_a100.yml` - A100 GPU的PyTorch后端测试
+  - 等37个不同GPU配置文件
+
+### 2. TensorRT
+
+#### 安装位置
+- **Docker安装脚本**: `docker/common/install_tensorrt.sh`
+  - 版本: 10.14.1.48
+  - CUDA版本: 13.1.0
+  - cuDNN版本: 9.17.0.29
+  - NCCL版本: 2.28.9
+  - cuBLAS版本: 13.2.0.9
+
+#### 测试文件
+**Unit测试** (310个文件导入tensorrt):
+- `tests/unittest/` - 所有核心功能测试
+- 覆盖TensorRT引擎构建、推理、优化等
+
+**集成测试**:
+- `tests/integration/defs/accuracy/test_llm_api.py` - TensorRT后端准确性测试
+- `tests/integration/defs/accuracy/test_llm_api_autodeploy.py` - 自动部署测试
+- `tests/integration/defs/cpp/test_e2e.py` - C++ TensorRT端到端测试
+
+#### 测试配置
+- 所有`tests/integration/test_lists/test-db/*.yml`配置文件
+- 所有性能测试配置: `tests/integration/test_lists/qa/*.yml`
+
+### 3. Transformers (Hugging Face)
+
+#### 依赖配置
+- **requirements.txt**: `transformers==4.57.1` (第31行)
+- **constraints.txt**: 版本约束
+
+#### 测试文件
+**使用Transformers的测试**:
+- `tests/integration/defs/common.py` - `from transformers import AutoModelForCausalLM`
+- `tests/integration/defs/deterministic/mixtral_deterministic.py` - Mixtral模型测试
+- `tests/integration/defs/disaggregated/test_workers.py` - 分布式worker测试
+- `tests/integration/defs/test_e2e.py` - 端到端tokenizer测试
+- `tests/integration/defs/ray_orchestrator/RL/` - Ray+Transformers测试
+- `tests/microbenchmarks/build_time_benchmark.py` - 构建时间基准测试
+
+#### 模型测试
+Transformers用于加载预训练模型进行对比测试:
+- Llama系列
+- Mixtral
+- Qwen
+- DeepSeek
+- Nemotron
+
+### 4. CUDA和NCCL
+
+#### 安装位置
+- **Docker安装脚本**: `docker/common/install_cuda_toolkit.sh`
+  - CUDA版本: 13.1.0
+  - NVRTC版本: 13.1.80
+
+#### 依赖配置
+- **requirements.txt**:
+  - `cuda-python>=13` (第6行)
+  - `nvidia-cuda-nvrtc` (第30行)
+  - `nvidia-nccl-cu13>=2.27.7,<=2.28.9` (第29行)
+  - `nvidia-ml-py>=13` (第16行)
+
+#### 测试覆盖
+- 所有多GPU测试使用NCCL进行通信
+- 所有CUDA kernel测试
+- `tests/integration/defs/cpp/test_multi_gpu.py` - 多GPU C++测试
+
+### 5. MPI和分布式通信
+
+#### 安装位置
+- **Docker安装脚本**:
+  - `docker/common/install_mpi4py.sh` - MPI4Py安装
+  - `docker/common/install_ucx.sh` - UCX统一通信框架
+  - `docker/common/install_nixl.sh` - NVIDIA NIXL通信库
+
+#### 依赖配置
+- **requirements.txt**: `mpi4py` (第9行)
+
+#### 测试文件
+- `tests/integration/defs/accuracy/test_llm_api_pytorch.py` - 使用`mpi4py.futures.MPIPoolExecutor`
+- 所有多节点测试配置:
+  - `tests/integration/test_lists/test-db/l0_gb200_multi_nodes.yml`
+  - `tests/integration/test_lists/test-db/l0_gb200_multi_nodes_disagg_perf_sanity_*.yml`
+
+### 6. Triton Server
+
+#### 安装位置
+- **Docker基础镜像**: `nvcr.io/nvidia/tritonserver:25.12-py3`
+- **Docker安装脚本**: `docker/common/install_triton.sh`
+- **Dockerfile**: `docker/Dockerfile.multi` (第94-119行)
+
+#### 测试覆盖
+- Triton backend测试
+- 模型服务部署测试
+
+### 7. Triton (OpenAI)
+
+#### 依赖配置
+- **requirements.txt**: `triton==3.5.1` (第69行)
+
+#### 测试文件
+- `tests/unittest/_torch/auto_deploy/unit/singlegpu/custom_ops/triton_kernels/` - Triton自定义kernel测试
+
+### 8. ONNX相关
+
+#### 依赖配置
+- **requirements.txt**:
+  - `onnx>=1.18.0,<1.20.0` (第11行)
+  - `onnx_graphsurgeon>=0.5.2` (第12行)
+  - `polygraphy` (第14行)
+
+#### 测试覆盖
+- ONNX模型转换测试
+- 图优化测试
+
+### 9. FastAPI和服务端
+
+#### 依赖配置
+- **requirements.txt**:
+  - `fastapi>=0.120.1,<=0.121.3` (第48行)
+  - `starlette>=0.49.1` (第49行)
+  - `uvicorn` (第50行)
+  - `pydantic>=2.9.1` (第34行)
+
+#### 测试文件
+- `tests/integration/defs/examples/serve/` - 服务端测试
+- `tests/integration/defs/examples/serve/test_configs/` - 服务配置
+
+### 10. 量化和优化工具
+
+#### 依赖配置
+- **requirements.txt**:
+  - `nvidia-modelopt[torch]~=0.37.0` (第26行) - ModelOpt量化工具
+  - `torchao>=0.14.1` (第80行) - PyTorch架构优化
+  - `flashinfer-python~=0.6.0` (第56行) - Flash Attention
+
+#### 测试覆盖
+- 量化精度测试
+- Flash Attention性能测试
+
+### 11. 约束生成和结构化输出
+
+#### 依赖配置
+- **requirements.txt**:
+  - `xgrammar==0.1.25` (第58行)
+  - `llguidance==0.7.29` (第59行)
+  - `jsonschema` (第60行)
+
+#### 测试覆盖
+- 结构化输出生成测试
+- JSON schema验证测试
+
+### 12. CI配置文件
+
+#### BlossomCI配置
+- **主配置**: `.github/workflows/blossom-ci.yml`
+  - 触发条件: PR评论 `/bot run`
+  - 阶段: Authorization → Vulnerability-scan → Job-trigger → Upload-Log
+  - 授权用户列表: 353个NVIDIA员工
+
+#### Pre-commit钩子
+- **配置文件**: `.pre-commit-config.yaml`
+  - 11个钩子: isort, yapf, ruff, clang-format, 等
+  - 在每次commit前自动运行代码格式和质量检查
+
+#### 许可证检查
+- **配置文件**: `jenkins/license_cpp.json`
+  - 用于扫描C++代码的许可证合规性
+  - 跳过列表: 双许可证文件
+
+### 13. Docker镜像构建
+
+#### 主Dockerfile
+- **文件**: `docker/Dockerfile.multi`
+  - 基础镜像: `nvcr.io/nvidia/pytorch:25.12-py3`
+  - 多阶段构建: base → devel → wheel → release
+  - 安装所有依赖: PyTorch, TensorRT, CUDA, NCCL, MPI, UCX, NIXL
+
+#### 依赖约束
+- **constraints.txt**: 所有依赖的精确版本约束
+- **requirements.txt**: 主要Python依赖
+- **requirements-dev.txt**: 开发依赖
+
+### 14. 测试执行入口
+
+#### 集成测试
+- **测试定义**: `tests/integration/defs/test_cases.yml`
+- **GPU配置**: `tests/integration/perf_configs/gpu_configs.yml`
+- **测试数据库**: `tests/integration/test_lists/test-db/*.yml` (37个配置文件)
+
+#### 性能测试
+- **核心性能**: `tests/integration/test_lists/qa/llm_perf_core.yml`
+- **性能快速检查**: `tests/integration/test_lists/qa/llm_perf_sanity.yml`
+- **Spark性能**: `tests/integration/test_lists/qa/llm_spark_perf.yml`
+
+#### Unit测试
+- **PyTest配置**: `tests/conftest.py`, `tests/unittest/conftest.py`
+- **执行**: 使用`pytest`命令运行所有单元测试
+
+### 15. 测试环境变量
+
+从测试代码和配置中推断的关键环境变量:
+- `PYTORCH_ALLOC_CONF="garbage_collection_threshold:0.99999"` - PyTorch内存管理
+- `CCACHE_DIR=/root/.cache/ccache` - 编译缓存
+- CUDA相关环境变量（CUDA_HOME, LD_LIBRARY_PATH等）
+
+---
+
+## 十四、结论
 
 TensorRT-LLM的CI测试环境使用了完整的NVIDIA AI软件栈：
 
@@ -290,5 +533,6 @@ TensorRT-LLM的CI测试环境使用了完整的NVIDIA AI软件栈：
 ---
 
 **报告生成器**: Claude Code
-**数据来源**: requirements.txt, Dockerfile.multi, .github/workflows/blossom-ci.yml
+**数据来源**: requirements.txt, Dockerfile.multi, .github/workflows/blossom-ci.yml, docker/common/install_*.sh, tests/**/*.py, tests/**/*.yml
 **分析日期**: 2026-01-27
+**更新日期**: 2026-01-27 (添加测试脚本和配置文件位置详解)
